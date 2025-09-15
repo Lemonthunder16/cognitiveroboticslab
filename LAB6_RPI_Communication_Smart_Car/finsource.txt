@@ -1,0 +1,191 @@
+===========================
+EXPERIMENT 1 — Serial testing between Arduino and RPi
+===========================
+
+--- serial_test.ino ---
+char dataString[50] = {0};
+int a =0;  
+
+void setup() {
+  Serial.begin(9600);              //Starting serial communication
+}
+
+void loop() {
+  if(a<10)
+    {
+      a++;                          // a value increase every loop
+      sprintf(dataString,"%02X",a); // convert a value to hexa  
+      Serial.println(dataString);   // send the data 
+      delay(1000);
+    }// give the loop some break
+}
+
+--- serial_test.py ---
+import serial
+
+ser = serial.Serial('/dev/ttyACM0',9600)
+s = [0]
+while True:
+ read_serial=ser.readline()
+ s[0] = str(int (ser.readline(),16))
+ print(s[0])
+ print(read_serial)
+
+
+===========================
+EXPERIMENT 2 — Controlling Arduino from RPi
+===========================
+
+--- controlfromRpi4.ino ---
+void setup() {
+  Serial.begin(9600);
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    String data = Serial.readStringUntil('\n');
+    Serial.print("You sent me: ");
+    Serial.println(data);
+  }
+}
+
+--- controltoArduino.py ---
+#!/usr/bin/env python3
+import serial
+import time
+
+if __name__ == '__main__':
+    ser = serial.Serial('/dev/ttyACM1', 9600, timeout=1)
+    ser.reset_input_buffer()
+
+    while True:
+        line='1'
+        line_encode=line.encode()
+        ser.write(line_encode);
+        #line = ser.readline().decode('utf-8').rstrip()
+        #print(line)
+        time.sleep(1)
+
+
+===========================
+EXPERIMENT 3 — Forward movement of Smart Car
+===========================
+
+--- ForwardMovement.ino ---
+#define ENA 5
+#define ENB 6
+#define IN1 7
+#define IN2 8
+#define IN3 9
+#define IN4 11
+int data1=0;
+
+void setup() {
+ pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  Serial.begin(9600);
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    String data = Serial.readStringUntil('\n');
+    Serial.print("You sent me: ");
+    Serial.println(data);
+    data1=data.toInt();
+    //data1 = data1+2;
+    Serial.print("data1 value");
+    Serial.println(data1);
+    digitalWrite(ENA, data1);   
+    digitalWrite(ENB, data1);  
+    digitalWrite(IN1, HIGH);       
+    digitalWrite(IN2, LOW);  
+    digitalWrite(IN3, LOW);       
+    digitalWrite(IN4, HIGH);  //go forward
+    delay(500);
+  }
+}
+
+--- ForwardMovement.py ---
+#!/usr/bin/env python3
+import serial
+import time
+
+if __name__ == '__main__':
+    ser = serial.Serial('/dev/ttyACM4', 9600, timeout=1)
+    ser.reset_input_buffer()
+
+    while True:
+        line='1'
+        line_encode=line.encode()
+        ser.write(line_encode);
+        #line = ser.readline().decode('utf-8').rstrip()
+        #print(line)
+        time.sleep(1)
+
+
+===========================
+EXPERIMENT 4 — Speed control of Smart Car
+===========================
+
+--- Acce.ino ---
+#define ENA 5
+#define ENB 6
+#define IN1 7
+#define IN2 8
+#define IN3 9
+#define IN4 11
+int data1=0;
+
+void setup() {
+ pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  Serial.begin(9600);
+
+}
+
+void loop() {
+    if (Serial.available() > 0) 
+    {
+    String data = Serial.readStringUntil('\n');
+    Serial.print("You sent me: ");
+    Serial.println(data);
+    data1=data.toInt();
+    //data1 = data1+2;
+    Serial.print("data1 value");
+    Serial.println(data1);
+    digitalWrite(ENA, data1);   
+    digitalWrite(ENB, data1);  
+    digitalWrite(IN1, HIGH);       
+    digitalWrite(IN2, LOW);  
+    digitalWrite(IN3, LOW);       
+    digitalWrite(IN4, HIGH);  //go forward
+    delay(500);
+    }
+}
+
+--- AccelerateSpeed.py ---
+#!/usr/bin/env python3
+import serial
+import time
+i=0
+if __name__ == '__main__':
+    ser = serial.Serial('/dev/ttyACM4', 9600, timeout=1)
+    ser.reset_input_buffer()
+
+while True:
+    line=str(i)
+    line_encode=line.encode()
+    ser.write(line_encode);
+    line = ser.readline().decode('utf-8').rstrip()
+    print(line)
+    time.sleep(1)
+
+    i=i+1
