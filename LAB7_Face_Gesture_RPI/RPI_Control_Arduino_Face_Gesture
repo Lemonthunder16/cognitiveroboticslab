@@ -1,0 +1,105 @@
+```python
+import cv2
+import serial
+import pickle
+import numpy as np
+from keras_facenet import FaceNet
+
+# === Arduino Serial ===
+ser = serial.Serial('/dev/ttyACM0', 9600, timeout=1)  # Change port if needed
+ser.reset_input_buffer()
+
+# === Load Models ===
+labels = ["Srikar", "Sukesh", "Abhinav"]  # your 3 trained names
+models = {label: pickle.load(open(f"{label}_model.pkl", "rb")) for label in labels}
+embedder = FaceNet()
+CONFIDENCE_THRESHOLD = 0.5
+
+# === Haar Cascade (for gesture tracking) ===
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+# === Video Stream from IP Webcam ===
+IP = "192.168.1.100"  # 🔹 Replace with your phone’s IP (from IP Webcam app)
+cap = cv2.VideoCapture(f"http://{IP}:8080/video")
+
+validated = False
+last_y = None
+GESTURE_THRESHOLD = 20  # pixels
+
+# === Helper Functions ===
+def get_embedding(frame, x, y, w, h):
+    face = frame[y:y+h, x:x+w]
+    if face.size == 0:
+        return None
+    face_rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
+    emb = embedder.embeddings([face_rgb])[0]
+    return emb.reshape(1, -1)
+
+def validate_face(frame, faces):
+    x, y, w, h = faces[0]  # take first detected face
+    emb = get_embedding(frame, x, y, w, h)
+    if emb is None:
+        return False
+
+    scores = {label: model.predict_proba(emb)[0][1] for label, model in models.items()}
+    best_label = max(scores, key=scores.get)
+    best_score = scores[best_label]
+
+    if best_score >= CONFIDENCE_THRESHOLD:
+        print(f"✅ Authenticated as {best_label} (confidence {best_score:.2f})")
+        return True
+    else:
+        print(f"❌ Authentication failed (best={best_label}, score={best_score:.2f})")
+        return False
+
+# === Main Loop ===
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        continue
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+
+    if not validated:
+        if len(faces) > 0:
+            if validate_face(frame, faces):
+                validated = True
+                print("🎮 Gesture control enabled")
+        else:
+            print("❌ No face detected - waiting for authentication")
+    else:
+        if len(faces) > 0:
+            x, y, w, h = faces[0]
+            face_center_y = y + h // 2
+
+            gesture = None
+            if last_y is not None:
+                if face_center_y < last_y - GESTURE_THRESHOLD:
+                    gesture = "FORWARD"
+                elif face_center_y > last_y + GESTURE_THRESHOLD:
+                    gesture = "BACKWARD"
+
+            if gesture:
+                print(f"Gesture: {gesture}")
+                ser.write(f"{gesture}\n".encode())
+
+            last_y = face_center_y
+
+            # Debug rectangle
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        else:
+            ser.write(b"STOP\n")
+            print("STOP")
+
+    cv2.imshow("Face Auth + Head Gesture Control", frame)
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord("q"):
+        break
+    elif key == ord("r"):  # 🔹 Reset authentication
+        validated = False
+        print("🔄 Reset authentication")
+
+cap.release()
+cv2.destroyAllWindows()
+```
