@@ -1,54 +1,44 @@
-from PIL import Image, ImageDraw
 import math
 import serial
 import time
 import matplotlib.pyplot as plt
 import numpy as np
+import json
 
-class Map2D:
-    def _init_(self, width=500, height=500, scale=10):
-        self.width = width
-        self.height = height
-        self.scale = scale  # e.g. 1 pixel = 1 cm
-        self.image = Image.new("RGB", (width, height), "white")
-        self.draw = ImageDraw.Draw(self.image)
-        self.origin = (width // 2, height // 2)  # Center as (0,0)
+GRID_SIZE = 25  # 25x25 grid
+GRID_SCALE = 4  # cm per cell (assuming map 100cm x 100cm)
 
-    def draw_robot(self, x, y, color="blue"):
-        px = self.origin[0] + int(x * self.scale)
-        py = self.origin[1] - int(y * self.scale)
-        self.draw.ellipse((px-2, py-2, px+2, py+2), fill=color)
+grid_map = np.zeros((GRID_SIZE, GRID_SIZE), dtype=int)
 
-    def draw_obstacle(self, x, y, color="black"):
-        px = self.origin[0] + int(x * self.scale)
-        py = self.origin[1] - int(y * self.scale)
-        self.draw.rectangle((px, py, px+1, py+1), fill=color)
-
-    def get_image_array(self):
-        return np.array(self.image)
-
-    def save(self, filename="map.png"):
-        self.image.save(filename)
-
-map2d = Map2D(width=500, height=500, scale=1)  # 1cm per pixel
-map2d.draw_robot(0,0)
-# Suppose the robot is at (0,0), facing 0° (upward)
-robot_x = 0
-robot_y = 0
+robot_grid_x = GRID_SIZE // 2
+robot_grid_y = GRID_SIZE // 2
 
 plt.ion()
 fig, ax = plt.subplots()
-img_display = ax.imshow(map2d.get_image_array())
-plt.title("Live Map")
+img_display = ax.imshow(grid_map, cmap='Greys', vmin=0, vmax=1)
+plt.title("Live Grid Map (25x25)")
 plt.axis('off')
 
-SERIAL_PORT = 'COM13'       # or '/dev/ttyUSB0' or '/dev/ttyACM0'
+SERIAL_PORT = 'COM8'       # Adjust if needed
 BAUD_RATE = 9600
+
+def mark_obstacle(distance, angle):
+    dx = distance * math.cos(math.radians(angle))
+    dy = distance * math.sin(math.radians(angle))
+
+    grid_x = robot_grid_x + int(round(dx / GRID_SCALE))
+    grid_y = robot_grid_y - int(round(dy / GRID_SCALE))
+
+    if 0 <= grid_x < GRID_SIZE and 0 <= grid_y < GRID_SIZE:
+        grid_map[grid_y, grid_x] = 1
 
 try:
     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-    time.sleep(2)  # Wait for Arduino to reset
+    time.sleep(2)
     print(f"Connected to {SERIAL_PORT} at {BAUD_RATE} baud.\n")
+
+    sweep_count = 0
+    prev_angle = None
 
     while True:
         line = ser.readline().decode('utf-8').strip()
@@ -57,16 +47,26 @@ try:
                 angle_str, dis_str = line.split(',')
                 angle = int(angle_str.strip())
                 distance = int(dis_str.strip())
-                print(angle,distance)
+                print(angle, distance)
 
-                obs_x = robot_x + distance * math.cos(math.radians(angle))
-                obs_y = robot_x + distance * math.sin(math.radians(angle))
-                if distance != -1 and distance > 2 and distance < 100: #real distance within a range gets mapped
-                   map2d.draw_obstacle(obs_x,obs_y)
+                # Detect sweep completion: angle wraps around from high to low (e.g., from > 350 to < 10)
+                if prev_angle is not None and prev_angle > 350 and angle < 10:
+                    sweep_count += 1
+                    print(f"Sweep #{sweep_count} completed.")
 
-                img_display.set_data(map2d.get_image_array())
+                    if sweep_count >= 10:
+                        print("Completed 10 sweeps. Stopping.")
+                        break
+
+                prev_angle = angle
+
+                if distance != -1 and 2 < distance < 100:
+                    mark_obstacle(distance, angle)
+
+                img_display.set_data(grid_map)
                 plt.draw()
                 plt.pause(0.001)
+
             except ValueError:
                 print(f"Invalid line: {line}")
 
@@ -79,6 +79,7 @@ finally:
         ser.close()
         print("Serial port closed.")
 
-
-# Save the map
-map2d.save("simple_map.png")
+# Save grid map as JSON
+with open("grid_map.json", "w") as f:
+    json.dump(grid_map.tolist(), f)
+print("Grid map saved as grid_map.json")
